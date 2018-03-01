@@ -90,8 +90,6 @@ public class JsonServiceExecutorImpl implements JsonServiceExecutor {
         HashMap headers = (HashMap) readJsonPathOrElseNull(requestJson, "$.headers");
         Object bodyContent = readJsonPathOrElseNull(requestJson, "$.body");
 
-        final javax.ws.rs.core.Response serverResponse = httpClient.execute(httpUrl, methodName, headers, queryParams, bodyContent);
-
         /*
          * $MOCK: Create mock endpoints supplied for this scenario
          */
@@ -101,6 +99,8 @@ public class JsonServiceExecutorImpl implements JsonServiceExecutor {
              */
             return "{\"status\": 200}";
         }
+
+        final javax.ws.rs.core.Response serverResponse = httpClient.execute(httpUrl, methodName, headers, queryParams, bodyContent);
 
         /*
          * now read the response for :
