@@ -111,12 +111,4 @@ public class StepTest {
          *
          */
     }
-
-    /**
-     * Do not use this private method as this has been moved to SmartUtils
-     **/
-    protected String getJsonDocumentAsString(String name) throws IOException {
-        String jsonAsString = Resources.toString(getClass().getClassLoader().getResource(name), StandardCharsets.UTF_8);
-        return jsonAsString;
-    }
 }

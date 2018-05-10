@@ -6,19 +6,9 @@ import com.fasterxml.jackson.databind.node.JsonNodeType;
 import com.google.inject.Inject;
 import com.jayway.jsonpath.JsonPath;
 import org.apache.commons.lang.text.StrSubstitutor;
-import org.jsmart.zerocode.core.engine.assertion.ArrayIsEmptyAsserter;
-import org.jsmart.zerocode.core.engine.assertion.ArraySizeAsserter;
-import org.jsmart.zerocode.core.engine.assertion.AssertionReport;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasEqualNumberValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasExactValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasGreaterThanValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasInEqualNumberValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasLesserThanValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasSubStringIgnoreCaseValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldHasSubStringValueAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldIsNotNullAsserter;
-import org.jsmart.zerocode.core.engine.assertion.FieldIsNullAsserter;
-import org.jsmart.zerocode.core.engine.assertion.JsonAsserter;
+import org.jsmart.zerocode.core.engine.assertion.*;
+import org.jsmart.zerocode.core.placeholders.CustomPlaceHolders;
+import org.jsmart.zerocode.core.placeholders.MyCustomPlaceHolders;
 import org.jsmart.zerocode.core.utils.SmartUtils;
 
 import java.io.IOException;
@@ -93,50 +83,63 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
         this.mapper = mapper;
     }
 
+    @Inject(optional = true)
+    private MyCustomPlaceHolders placeHolders;
 
     @Override
     public String resolveStringJson(String requestJsonOrAnyString, String scenarioStateJson) {
-        Map<String, String> parammap = new HashMap<>();
+        Map<String, String> paramMap = new HashMap<>();
 
         final List<String> allTokens = getAllTokens(requestJsonOrAnyString);
         allTokens.forEach(runTimeToken -> {
             availableTokens.forEach(inStoreToken -> {
                 if (runTimeToken.startsWith(inStoreToken)) {
                     if (runTimeToken.startsWith(RANDOM_NUMBER)) {
-                        parammap.put(runTimeToken, System.currentTimeMillis() + "");
+                        paramMap.put(runTimeToken, System.currentTimeMillis() + "");
 
                     } else if (runTimeToken.startsWith(RANDOM_STRING_PREFIX)) {
                         int length = Integer.parseInt(runTimeToken.substring(RANDOM_STRING_PREFIX.length()));
-                        parammap.put(runTimeToken, createRandomAlphaString(length));
+                        paramMap.put(runTimeToken, createRandomAlphaString(length));
 
                     } else if (runTimeToken.startsWith(STATIC_ALPHABET)) {
                         int length = Integer.parseInt(runTimeToken.substring(STATIC_ALPHABET.length()));
-                        parammap.put(runTimeToken, createStaticAlphaString(length));
+                        paramMap.put(runTimeToken, createStaticAlphaString(length));
 
                     } else if (runTimeToken.startsWith(LOCALDATE_TODAY)) {
                         String formatPattern = runTimeToken.substring(LOCALDATE_TODAY.length());
                         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(formatPattern);
-                        parammap.put(runTimeToken, LocalDate.now().format(formatter));
+                        paramMap.put(runTimeToken, LocalDate.now().format(formatter));
 
                     } else if (runTimeToken.startsWith(LOCALDATETIME_NOW)) {
                         String formatPattern = runTimeToken.substring(LOCALDATETIME_NOW.length());
                         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(formatPattern);
-                        parammap.put(runTimeToken, LocalDateTime.now().format(formatter));
+                        paramMap.put(runTimeToken, LocalDateTime.now().format(formatter));
                     } else if (runTimeToken.startsWith(XML_FILE)) {
                         String xmlFileResource = runTimeToken.substring(XML_FILE.length());
                         final String xmlString = getXmlContent(xmlFileResource);
                         // Used escapeJava, do not use escapeXml as it replaces
                         // with GT LT etc ie what exactly you don't want
-                        parammap.put(runTimeToken, escapeJava(xmlString));
+                        paramMap.put(runTimeToken, escapeJava(xmlString));
 
                     } else if (runTimeToken.startsWith(RANDOM_UU_ID)) {
-                        parammap.put(runTimeToken, randomUUID().toString());
+                        paramMap.put(runTimeToken, randomUUID().toString());
                     }
                 }
             });
         });
 
-        StrSubstitutor sub = new StrSubstitutor(parammap);
+        System.out.println("  =================== placeholders-" + placeHolders);
+
+        if (null != placeHolders) {
+            Map<String, String> tokenImplMap= new HashMap<>();
+            tokenImplMap.put("MY.VALUE", "galaxy");
+
+            placeHolders.getCustomTokens().forEach(customToken -> {
+                paramMap.put(customToken, tokenImplMap.get(customToken));
+            });
+        }
+
+        StrSubstitutor sub = new StrSubstitutor(paramMap);
         String resolvedFromTemplate = sub.replace(requestJsonOrAnyString);
 
         return resolveJsonPaths(resolvedFromTemplate, scenarioStateJson);
@@ -163,7 +166,7 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
         jsonPaths.forEach(thisPath -> {
             try {
 
-                if(thisPath.endsWith(RAW_BODY)){
+                if (thisPath.endsWith(RAW_BODY)) {
                     /**
                      * In case the rawBody is used anywhere in the steps as $.step_name.response.rawBody,
                      * then it must be escaped as the content was not a simple JSON string to be able
@@ -177,7 +180,7 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
 
                 } else {
                     // if it is a json block/node or array, this return value is LinkedHashMap.
-                    if(JsonPath.read(scenarioState, thisPath) instanceof LinkedHashMap){
+                    if (JsonPath.read(scenarioState, thisPath) instanceof LinkedHashMap) {
                         final String pathValue = mapper.writeValueAsString(JsonPath.read(scenarioState, thisPath));
                         String escapedPathValue = escapeJava(pathValue);
                         paramMap.put(thisPath, escapedPathValue);
@@ -217,15 +220,11 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
     @Override
     public List<JsonAsserter> createAssertersFrom(String resolvedAssertionJson) {
         List<JsonAsserter> asserters = new ArrayList<>();
-//        if(parsable resolvedAssertionJson){
-//
-//        }
         try {
             JsonNode jsonNode = mapper.readTree(resolvedAssertionJson);
 
             Map<String, Object> createFieldsKeyValuesMap = createAssertionKV(jsonNode, "$.");
 
-            int i = 1;
             for (Map.Entry<String, Object> entry : createFieldsKeyValuesMap.entrySet()) {
                 String path = entry.getKey();
                 Object value = entry.getValue();
@@ -233,54 +232,73 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
                 JsonAsserter asserter;
                 if (ASSERT_VALUE_NOT_NULL.equals(value)) {
                     asserter = new FieldIsNotNullAsserter(path);
-                }
-                else if (ASSERT_VALUE_NULL.equals(value)) {
+                } else if (ASSERT_VALUE_NULL.equals(value)) {
                     asserter = new FieldIsNullAsserter(path);
-                }
-                else if (ASSERT_VALUE_EMPTY_ARRAY.equals(value)) {
+                } else if (ASSERT_VALUE_EMPTY_ARRAY.equals(value)) {
                     asserter = new ArrayIsEmptyAsserter(path);
-                }
-                else if (path.endsWith(ASSERT_PATH_SIZE)) {
+                } else if (path.endsWith(ASSERT_PATH_SIZE)) {
                     path = path.substring(0, path.length() - ASSERT_PATH_SIZE.length());
                     asserter = new ArraySizeAsserter(path, ((Integer) value).intValue());
-                }
-                else if (value instanceof String && ((String) value).startsWith(ASSERT_VALUE_CONTAINS_STRING)) {
+                } else if (value instanceof String && ((String) value).startsWith(ASSERT_VALUE_CONTAINS_STRING)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_CONTAINS_STRING.length());
                     asserter = new FieldHasSubStringValueAsserter(path, expected);
-                }
-                else if (value instanceof String && ((String) value).startsWith(ASSERT_VALUE_CONTAINS_STRING_IGNORE_CASE)) {
+                } else if (value instanceof String && ((String) value).startsWith(ASSERT_VALUE_CONTAINS_STRING_IGNORE_CASE)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_CONTAINS_STRING_IGNORE_CASE.length());
                     asserter = new FieldHasSubStringIgnoreCaseValueAsserter(path, expected);
-                }
-                else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_EQUAL_TO_NUMBER)) {
+                } else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_EQUAL_TO_NUMBER)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_EQUAL_TO_NUMBER.length());
                     asserter = new FieldHasEqualNumberValueAsserter(path, new BigDecimal(expected));
-                }
-                else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_NOT_EQUAL_TO_NUMBER)) {
+                } else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_NOT_EQUAL_TO_NUMBER)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_NOT_EQUAL_TO_NUMBER.length());
                     asserter = new FieldHasInEqualNumberValueAsserter(path, new BigDecimal(expected));
-                }
-                else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_GREATER_THAN)) {
+                } else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_GREATER_THAN)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_GREATER_THAN.length());
                     asserter = new FieldHasGreaterThanValueAsserter(path, new BigDecimal(expected));
-                }
-                else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_LESSER_THAN)) {
+                } else if (value instanceof String && (value.toString()).startsWith(ASSERT_VALUE_LESSER_THAN)) {
                     String expected = ((String) value).substring(ASSERT_VALUE_LESSER_THAN.length());
                     asserter = new FieldHasLesserThanValueAsserter(path, new BigDecimal(expected));
                 }
                 else {
-                    asserter = new FieldHasExactValueAsserter(path, value);
+                    //asserter = new FieldHasExactValueAsserter(path, value);
+                    asserter = resolveFromCustomAsserter(createFieldsKeyValuesMap);
+
+                    if(asserter == null){
+                        asserter = new FieldHasExactValueAsserter(path, value);
+                    }
                 }
 
-                //System.out.println("### Asserter: " + asserter.toString());
                 asserters.add(asserter);
             }
-            //System.out.println("### Asserters size: " + asserters.size());
+
+
+
         } catch (IOException parEx) {
             throw new RuntimeException(parEx);
         }
 
         return asserters;
+    }
+
+    private JsonAsserter resolveFromCustomAsserter(Map<String, Object> createFieldsKeyValuesMap) {
+        ///
+        if(null != placeHolders){
+            String  ENDS_WITH = "$ENDS.WITH:";
+            Map<String, JsonAsserter> asserterImplMap = new HashMap<>();
+
+            for (Map.Entry<String, Object> entry : createFieldsKeyValuesMap.entrySet()) {
+                String path = entry.getKey();
+                Object value = entry.getValue();
+
+                if (value instanceof String && ((String) value).startsWith(ENDS_WITH)) {
+                    String expected = ((String) value).substring(ENDS_WITH.length());
+                    asserterImplMap.put(ENDS_WITH, new FieldHasEndsWithValueAsserter(path, expected));
+
+                    return asserterImplMap.get(ENDS_WITH);
+                }
+            }
+        }
+
+        return null;
     }
 
     private Map<String, Object> createAssertionKV(JsonNode jsonNode, String pathDslPrefix) {
@@ -302,8 +320,7 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
                 }
             });
 
-        }
-        else if (jsonNode.getNodeType().equals(JsonNodeType.ARRAY)) {
+        } else if (jsonNode.getNodeType().equals(JsonNodeType.ARRAY)) {
             int i = 0;
             final Iterator<JsonNode> arrayIterator = jsonNode.elements();
             while (arrayIterator.hasNext()) {
@@ -325,12 +342,11 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
          * This is useful when only value is present without a key
          * i.e. still a valid JSON even if it doesnt start-end with a '{'
          */
-        else if(jsonNode.isValueNode()){
+        else if (jsonNode.isValueNode()) {
             Object value = convertJsonTypeToJavaType(jsonNode);
             resultMap.put("$", value);
 
-        }
-        else {
+        } else {
             throw new RuntimeException(format("Oops! Unsupported JSON Type: %s", jsonNode.getClass().getName()));
 
         }
@@ -340,22 +356,22 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
 
     private Object convertJsonTypeToJavaType(JsonNode jsonNode) {
         if (jsonNode.isValueNode()) {
-            if(jsonNode.isInt()){
+            if (jsonNode.isInt()) {
                 return jsonNode.asInt();
 
-            } else if(jsonNode.isTextual()){
+            } else if (jsonNode.isTextual()) {
                 return jsonNode.asText();
 
-            } else if(jsonNode.isBoolean()){
+            } else if (jsonNode.isBoolean()) {
                 return jsonNode.asBoolean();
 
-            } else if(jsonNode.isLong()){
+            } else if (jsonNode.isLong()) {
                 return jsonNode.asLong();
 
-            } else if(jsonNode.isDouble()){
+            } else if (jsonNode.isDouble()) {
                 return jsonNode.asDouble();
 
-            } else if(jsonNode.isNull()){
+            } else if (jsonNode.isNull()) {
                 return null;
 
             } else {
@@ -413,7 +429,7 @@ public class ZeroCodeJsonTestProcesorImpl implements ZeroCodeJsonTestProcesor {
         return availableTokens;
     }
 
-    public String getXmlContent(String xmlFileResource){
+    public String getXmlContent(String xmlFileResource) {
         try {
             return SmartUtils.readJsonAsString(xmlFileResource);
         } catch (IOException e) {

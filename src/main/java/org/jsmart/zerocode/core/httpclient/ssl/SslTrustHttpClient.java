@@ -1,5 +1,6 @@
 package org.jsmart.zerocode.core.httpclient.ssl;
 
+import com.google.inject.Inject;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -13,7 +14,8 @@ import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.jsmart.zerocode.core.httpclient.BasicHttpClient;
-import org.jsmart.zerocode.core.httpclient.RestEasyDefaultHttpClient;
+import org.jsmart.zerocode.core.placeholders.CustomPlaceHolders;
+import org.jsmart.zerocode.core.placeholders.MyCustomPlaceHolders;
 import org.jsmart.zerocode.core.utils.HelperJsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +35,9 @@ public class SslTrustHttpClient implements BasicHttpClient {
     private static final Logger LOGGER = LoggerFactory.getLogger(SslTrustHttpClient.class);
 
     private Object COOKIE_JSESSIONID_VALUE;
+
+    @Inject(optional = true)
+    private MyCustomPlaceHolders placeHolders;
 
     @Override
     public Response execute(String httpUrl, String methodName, Map<String, Object> headers, Map<String, Object> queryParams, Object body) throws Exception {
